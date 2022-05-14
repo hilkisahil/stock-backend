@@ -53,12 +53,19 @@ app.post('/stocks', (req, res) => {
 })
 
 app.post('/getUserStock', (req, res) => {
-    let query = 'select *, stocks.id as "stockId", stocks.quantity as "stockQty" from "userStock" left join stocks on "userStock"."stockId"=stocks.id where "userStock"."userId"=$1'
+    let query = 'select *, stocks.id as "stockId", "userStock".quantity as "purchaseQuantity" from "userStock" left join stocks on "userStock"."stockId"=stocks.id where "userStock"."userId"=$1'
     db.query(query, [req.body.userId]).then(response => {
         res.json({ flag: true, data: response.rows })
     }).catch(error => {
         console.log(error)
         res.json({ flag: false })
+    })
+})
+
+app.post('/addStocks', (req, res) => {
+    let insertQuery = 'insert into "stocks" (id, name, code, quantity, "currentPrice", "highestToday", "lowestToday") values($1,$2,$3,$4,$5,$6,$7)'
+    req.body.stocks.forEach(s => {
+        db.query(insertQuery, [uuidv4(), s.name, s.code, s.quantity, s.currentPrice, s.highestToday, s.lowestToday]).then();
     })
 })
 
@@ -73,7 +80,7 @@ app.post('/buySellStock', (req, res) => {
     db.query(userStockQuery, [req.body.userId, req.body.stockId]).then(response => {
         if(response.rows.length){
             let record = response.rows[0];
-            let qty = req.body.operation === 1 ? (record.quantity+req.body.quantity) : (record.quantity-req.body.quantity);
+            let qty = req.body.operation === 1 ? (record.quantity+Number(req.body.quantity)) : (record.quantity-Number(req.body.quantity));
             let updateQuery = 'update "userStock" set quantity=$1 where (id=$2)'
             db.query(updateQuery, [qty, record.id]).then();
         }else {
@@ -82,15 +89,16 @@ app.post('/buySellStock', (req, res) => {
         }
         /* -------------------- Update User's balance -------------------- */
         let updateUserQuery = '', amount = req.body.quantity*req.body.currentPrice;
-        if(req.body.operation === 1) updateUserQuery = 'update users set balance=(balance-$1) where (id=$2)'
-        else updateUserQuery = 'update users set balance=(balance+$1) where (id=$2)'
-        db.query(updateUserQuery, [amount, req.body.userId]).then();
+        if(req.body.operation === 1) updateUserQuery = 'update users set balance=round( CAST(float8 (balance-$1) as numeric), 2) where (id=$2)'
+        else updateUserQuery = 'update users set balance=round( CAST(float8 (balance+$1) as numeric), 2) where (id=$2)'
+        db.query(updateUserQuery, [amount, req.body.userId]).then(() =>
+            res.json({ flag: true, data: {message:`Stock ${req.body.operation===1?'purchased':'sold'} successfully`} })
+        );
         /* ---------x--------------x---------------x-------------x--------- */
         /* --------------- Add Purchase/Sell History ---------------------- */
         let transactQuery = 'insert into "purchaseSellHistory"(id, "userId", "stockId", operation, quantity, "createdAt", "updatedAt") values($1,$2,$3,$4,$5,$6,$6)'
         db.query(transactQuery, [uuidv4(), req.body.userId, req.body.stockId, req.body.operation, req.body.quantity, moment().format()]).then();
         /* --------x--------------x----------------x-------------x--------- */
-        res.json({ flag: true, data: {message:`Stock ${req.body.operation===1?'purchased':'sold'} successfully`} })
     }).catch(error => {
         console.log(error); res.json({ flag: false, data: {message: 'Query failed'} })
     })
