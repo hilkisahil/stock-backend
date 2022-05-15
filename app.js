@@ -62,6 +62,16 @@ app.post('/getUserStock', (req, res) => {
     })
 })
 
+app.post('/getTransactions', (req, res) => {
+    let query = 'select *, stocks.id as "stockId", "purchaseSellHistory".id as "transactId", "purchaseSellHistory".quantity as "transactionQty" from "purchaseSellHistory" left join stocks on "purchaseSellHistory"."stockId"=stocks.id where "purchaseSellHistory"."userId"=$1'
+    db.query(query, [req.body.userId]).then(response => {
+        res.json({ flag: true, data: response.rows })
+    }).catch(error => {
+        console.log(error)
+        res.json({ flag: false })
+    })
+})
+
 app.post('/addStocks', (req, res) => {
     let insertQuery = 'insert into "stocks" (id, name, code, quantity, "currentPrice", "highestToday", "lowestToday") values($1,$2,$3,$4,$5,$6,$7)'
     req.body.stocks.forEach(s => {
@@ -75,14 +85,22 @@ app.post('/buySellStock', (req, res) => {
     // If any record, update that record (record.qty +/- entered.qty )
     // Update user balance based on operation and evaluate amount to +/- by (entered.qty*stock.currentPrice)
     // Always Insert purchaseSellHistory
-
+    if(req.body.quantity <= 0) return res.json({ flag: false, data: {message: 'Please enter valid quantity'} });
     let userStockQuery = 'select * from "userStock" where ("userId"=$1 and "stockId"=$2)'
     db.query(userStockQuery, [req.body.userId, req.body.stockId]).then(response => {
         if(response.rows.length){
             let record = response.rows[0];
+            if(req.body.operation === 2 && req.body.quantity > record.quantity){   //Validate sell qty
+                return res.json({ flag: false, data: {message: 'Entered quantity cannot be more than purchased quantity'} });
+            }
             let qty = req.body.operation === 1 ? (record.quantity+Number(req.body.quantity)) : (record.quantity-Number(req.body.quantity));
-            let updateQuery = 'update "userStock" set quantity=$1 where (id=$2)'
-            db.query(updateQuery, [qty, record.id]).then();
+            if(qty > 0) {
+                let updateQuery = 'update "userStock" set quantity=$1 where (id=$2)';
+                db.query(updateQuery, [qty, record.id]).then();
+            }else {              // Delete record if qty evaluate to zero
+                let deleteQuery = 'delete from "userStock" where (id=$1)';
+                db.query(deleteQuery, [record.id]).then();
+            }
         }else {
             let insertQuery = 'insert into "userStock" (id, "userId", "stockId", quantity, "createdAt", "updatedAt") values($1,$2,$3,$4,$5,$5)'
             db.query(insertQuery, [uuidv4(), req.body.userId, req.body.stockId, req.body.quantity, moment().format()]).then();
